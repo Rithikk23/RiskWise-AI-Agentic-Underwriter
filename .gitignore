@@ -20,6 +20,9 @@ data/insurance_claims.csv
 data/raw_documents/*
 data/processed/*
 data/vector_store/*
+!data/raw_documents/.gitkeep
+!data/processed/.gitkeep
+!data/vector_store/.gitkeep
 models/*.pkl
 models/*.joblib
 logs/
@@ -34,4 +37,3 @@ logs/
 
 # Docker
 *.pid
-
