@@ -6,6 +6,7 @@ import pytest
 from backend.app.rag.chunking import DocumentChunk, chunk_text
 from backend.app.rag.embeddings import HashEmbeddingProvider
 from backend.app.rag.ingest import RagIngestionError, ingest_documents
+from backend.app.rag.retriever import RagRetrievalError, retrieve_context
 from backend.app.rag.vector_store import (
     INDEX_FILENAME,
     METADATA_FILENAME,
@@ -98,6 +99,87 @@ def test_ingest_documents_creates_vector_store(tmp_path: Path) -> None:
     assert summary["page_count"] == 1
     assert summary["chunk_count"] >= 1
     assert metadata["chunks"][0]["metadata"]["document_type"] == "insurance_guideline"
+
+
+def test_retrieve_context_returns_source_cited_results(tmp_path: Path) -> None:
+    chunks = [
+        DocumentChunk(
+            content="Claim handling guidelines require fair review.",
+            metadata={
+                "source": "claims.pdf",
+                "page": 2,
+                "chunk_id": "claims_page2_chunk0",
+                "document_type": "insurance_guideline",
+            },
+        ),
+        DocumentChunk(
+            content="Underwriting guidelines discuss premium factors.",
+            metadata={
+                "source": "underwriting.pdf",
+                "page": 4,
+                "chunk_id": "underwriting_page4_chunk0",
+                "document_type": "insurance_guideline",
+            },
+        ),
+    ]
+    embeddings = np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+    save_faiss_vector_store(chunks, embeddings, vector_store_dir=tmp_path)
+
+    results = retrieve_context(
+        "How should this claim be reviewed?",
+        top_k=1,
+        query_type="claim_handling",
+        vector_store_dir=tmp_path,
+        embedding_provider=_StaticEmbeddingProvider([[1.0, 0.0]]),
+    )
+
+    assert results == [
+        {
+            "content": "Claim handling guidelines require fair review.",
+            "source": "claims.pdf",
+            "page": 2,
+            "score": 1.0,
+            "chunk_id": "claims_page2_chunk0",
+            "document_type": "insurance_guideline",
+        }
+    ]
+
+
+def test_retrieve_context_reports_missing_vector_store(tmp_path: Path) -> None:
+    with pytest.raises(RagRetrievalError, match="Run `python backend/app/rag/ingest.py`"):
+        retrieve_context("claim handling", vector_store_dir=tmp_path)
+
+
+def test_retrieve_context_rejects_unknown_query_type(tmp_path: Path) -> None:
+    chunks = [
+        DocumentChunk(
+            content="Coverage guidelines",
+            metadata={
+                "source": "coverage.pdf",
+                "page": 1,
+                "chunk_id": "coverage_page1_chunk0",
+                "document_type": "insurance_guideline",
+            },
+        )
+    ]
+    embeddings = np.asarray([[1.0, 0.0]], dtype=np.float32)
+    save_faiss_vector_store(chunks, embeddings, vector_store_dir=tmp_path)
+
+    with pytest.raises(RagRetrievalError, match="Unsupported query_type"):
+        retrieve_context(
+            "coverage",
+            query_type="medical_guideline",
+            vector_store_dir=tmp_path,
+            embedding_provider=_StaticEmbeddingProvider([[1.0, 0.0]]),
+        )
+
+
+class _StaticEmbeddingProvider:
+    def __init__(self, vectors: list[list[float]]) -> None:
+        self.vectors = np.asarray(vectors, dtype=np.float32)
+
+    def embed_texts(self, texts: list[str]) -> np.ndarray:
+        return np.resize(self.vectors, (len(texts), self.vectors.shape[1])).astype(np.float32)
 
 
 def _write_text_pdf(path: Path, text: str) -> None:

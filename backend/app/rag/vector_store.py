@@ -73,3 +73,10 @@ def load_vector_store_metadata(
 
     path = Path(vector_store_dir) / METADATA_FILENAME
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_faiss_index(vector_store_dir: str | Path = settings.vector_store_dir) -> faiss.Index:
+    """Load a persisted FAISS index."""
+
+    path = Path(vector_store_dir) / INDEX_FILENAME
+    return faiss.read_index(str(path))
